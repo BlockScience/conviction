@@ -849,7 +849,7 @@ sns.heatmap(affinities,
 plt.title('affinities between participants and proposals')
 plt.xlabel('proposal_id')
 plt.ylabel('participant_id')
-
+plt.show()
 
 # In[41]:
 
@@ -874,20 +874,19 @@ make2D('age_all', rdf)
 
 plt.plot(rdf.timestep,make2D('age_all', rdf))
 plt.title('check age')
-
+plt.show()
 
 # In[43]:
 
 
 rdf.plot(x='timestep',y=['candidate_count','active_count','completed_count'])
-
+plt.show()
 
 # In[44]:
 
 
 rdf.plot(x='timestep',y=['candidate_funds','active_funds','completed_funds'])
-
-
+plt.show()
 # In[45]:
 
 
@@ -895,7 +894,7 @@ plt.semilogy(rdf.timestep,make2D('conviction_all', rdf))
 plt.title('conviction by proposal')
 plt.xlabel('time $t$')
 plt.ylabel('conviction')
-
+plt.show()
 
 # In[46]:
 
@@ -904,7 +903,7 @@ plt.semilogy(make2D('age_all', rdf),make2D('conviction_all', rdf))
 plt.title('conviction by proposal')
 plt.xlabel('proposal age')
 plt.ylabel('conviction')
-
+plt.show()
 
 # In[47]:
 
@@ -913,7 +912,7 @@ plt.plot(rdf.timestep,make2D('share_of_funds_requested_all', rdf))
 plt.title('share_of_funds_requested by proposal')
 plt.xlabel('time $t$')
 plt.ylabel('share_of_funds_requested')
-
+plt.show()
 
 # In[48]:
 
@@ -922,7 +921,7 @@ plt.semilogy(make2D('age_all', rdf),make2D('share_of_funds_requested_all', rdf))
 plt.title('share_of_funds_requested by proposal')
 plt.xlabel('proposal age')
 plt.ylabel('share_of_funds_requested')
-
+plt.show()
 
 # In[166]:
 
@@ -930,7 +929,7 @@ plt.ylabel('share_of_funds_requested')
 plt.loglog(make2D('share_of_funds_requested_all', rdf), make2D('conviction_all', rdf), '.')
 plt.ylabel('conviction')
 plt.xlabel('share_of_funds_requested')
-
+plt.show()
 
 # In[50]:
 
@@ -938,7 +937,7 @@ plt.xlabel('share_of_funds_requested')
 plt.semilogy(make2D('age_all', rdf), make2D('triggers_all', rdf))
 plt.ylabel('triggers')
 plt.xlabel('proposal_age')
-
+plt.show()
 
 # In[51]:
 
@@ -949,7 +948,7 @@ plt.loglog(a[:2],a[2:], 'k',alpha=.5 )
 plt.ylabel('triggers')
 plt.xlabel('conviction')
 plt.title('phase: Triggers & Conviction')
-
+plt.show()
 
 # In[174]:
 
@@ -959,7 +958,7 @@ plt.title('conviction_share_of_trigger')
 plt.xlabel('time $t$')
 plt.ylabel('conviction_share_of_trigger')
 plt.hlines(1,0,T, linestyle='--')
-
+plt.show()
 
 # In[63]:
 
@@ -968,7 +967,7 @@ plt.semilogy(make2D('age_all', rdf), make2D('conviction_share_of_trigger_all', r
 plt.ylabel('triggers')
 plt.xlabel('proposal_age')
 plt.hlines(1,0,T, linestyle='--')
-
+plt.show()
 
 # In[54]:
 
@@ -1066,8 +1065,12 @@ plt.title('Tokens Staked by Partipants to Proposals')
 
 # In[125]:
 
+just_last_1= True
 
-nets = rdf.network.values
+if just_last_1:
+    nets = rdf.network.tail(1).values
+else:
+    ets = rdf.network.values
 
 
 # In[164]:
