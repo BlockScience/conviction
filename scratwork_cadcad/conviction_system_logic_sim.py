@@ -500,7 +500,7 @@ params={
     'sensitivity': [.75],
     'tmin': [7], #unit days; minimum periods passed before a proposal can pass
     'sentiment_decay': [.001], #termed mu in the state update function
-    'alpha': [0.5, 0.9],
+    'alpha': [0.5],
     'base_completion_rate': [10],
     'trigger_func': [trigger_threshold]
 }

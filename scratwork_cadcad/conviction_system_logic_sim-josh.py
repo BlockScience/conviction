@@ -1,5 +1,10 @@
+#from pprint import pprint
+
 import numpy as np
-from conviction_helpers import get_nodes_by_type
+from tabulate import tabulate
+
+from cadCAD.configuration.utils import config_sim
+from conviction_helpers import get_nodes_by_type,initialize_network,total_funds_given_total_supply,trigger_threshold
 #import networkx as nx
 from scipy.stats import expon, gamma
 
@@ -8,6 +13,8 @@ from scipy.stats import expon, gamma
 
 #Driving processes: arrival of participants, proposals and funds
 ##-----------------------------------------
+
+
 def gen_new_participant(network, new_participant_holdings):
     
     i = len([node for node in network.nodes])
@@ -31,12 +38,9 @@ def gen_new_participant(network, new_participant_holdings):
     return network
     
 
+scale_factor = 1000
 
-
-def gen_new_proposal(network, funds, supply, trigger_func, scale_factor = 1.0/10):
-    
-    
-    
+def gen_new_proposal(network, funds, supply, trigger_func):
     j = len([node for node in network.nodes])
     network.add_node(j)
     network.nodes[j]['type']="proposal"
@@ -45,7 +49,7 @@ def gen_new_proposal(network, funds, supply, trigger_func, scale_factor = 1.0/10
     network.nodes[j]['status']='candidate'
     network.nodes[j]['age']=0
     
-    rescale = funds*scale_factor
+    rescale = scale_factor*funds
     r_rv = gamma.rvs(3,loc=0.001, scale=rescale)
     network.node[j]['funds_requested'] = r_rv
     
@@ -97,10 +101,10 @@ def driving_process(params, step, sL, s):
     
     sentiment = s['sentiment']
     funds = s['funds']
-    scale_factor = funds*sentiment**2/10000
+    scale_factor = 1+4000*sentiment**2
     
     #this shouldn't happen but expon is throwing domain errors
-    if sentiment>.4: 
+    if scale_factor > 1: 
         funds_arrival = expon.rvs(loc = 0, scale = scale_factor )
     else:
         funds_arrival = 0
@@ -261,7 +265,6 @@ def trigger_function(params, step, sL, s):
     supply = s['supply']
     proposals = get_nodes_by_type(network, 'proposal')
     tmin = params['tmin']
-    trigger_func = params['trigger_func']
     
     accepted = []
     triggers = {}
@@ -269,7 +272,7 @@ def trigger_function(params, step, sL, s):
         if network.nodes[j]['status'] == 'candidate':
             requested = network.nodes[j]['funds_requested']
             age = network.nodes[j]['age']
-            threshold = trigger_func(requested, funds, supply)
+            threshold = trigger_threshold(requested, funds, supply)
             if age > tmin:
                 conviction = network.nodes[j]['conviction']
                 if conviction >threshold:
@@ -362,7 +365,6 @@ def update_sentiment_on_release(params, step, sL, s, _input):
     return (key, value)
 
 def participants_decisions(params, step, sL, s):
-    
     network = s['network']
     participants = get_nodes_by_type(network, 'participant')
     proposals = get_nodes_by_type(network, 'proposal')
@@ -434,3 +436,121 @@ def update_supply(params, step, sL, s, _input):
     value = supply
     
     return (key, value)
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+# The Partial State Update Blocks
+partial_state_update_blocks = [
+    {
+        'policies': {
+            #new proposals or new participants
+            'random': driving_process
+        },
+        'variables': {
+            'network': update_network,
+            'funds':increment_funds,
+            'supply':increment_supply
+        }
+    },
+    {
+      'policies': {
+          'completion': check_progress #see if any of the funded proposals completes
+        },
+        'variables': { # The following state variables will be updated simultaneously
+            'sentiment': update_sentiment_on_completion, #note completing decays sentiment, completing bumps it
+            'network': complete_proposal #book-keeping
+        }
+    },
+        {
+      'policies': {
+          'release': trigger_function #check each proposal to see if it passes
+        },
+        'variables': { # The following state variables will be updated simultaneously
+            'funds': decrement_funds, #funds expended
+            'sentiment': update_sentiment_on_release, #releasing funds can bump sentiment
+            'network': update_proposals #reset convictions, and participants sentiments
+                                        #update based on affinities
+        }
+    },
+    {
+        'policies': {
+            'participants_act': participants_decisions, #high sentiment, high affinity =>buy
+                                                        #low sentiment, low affinities => burn
+                                                        #assign tokens to top affinities
+        },
+        'variables': {
+            'supply': update_supply,
+            'network': update_tokens #update everyones holdings
+                                    #and their conviction for each proposal
+        }
+    }
+]
+
+n= 25 #initial participants
+m= 3 #initial proposals
+
+initial_sentiment = .5
+
+network, initial_funds, initial_supply, total_requested = initialize_network(n,m,total_funds_given_total_supply,trigger_threshold)
+
+initial_conditions = {'network':network,
+                      'supply': initial_supply,
+                      'funds':initial_funds,
+                      'sentiment': initial_sentiment}
+
+#power of 1 token forever
+# conviction_capactity = [2]
+# alpha = [1-1/cc for cc in conviction_capactity]
+# print(alpha)
+
+params={
+    'sensitivity': [.75],
+    'tmin': [7], #unit days; minimum periods passed before a proposal can pass
+    'sentiment_decay': [.001], #termed mu in the state update function
+    'alpha': [0.5, 0.9],
+    'base_completion_rate': [10],
+    'trigger_func': [trigger_threshold]
+}
+
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+# Settings of general simulation parameters, unrelated to the system itself
+# `T` is a range with the number of discrete units of time the simulation will run for;
+# `N` is the number of times the simulation will be run (Monte Carlo runs)
+time_periods_per_run = 250
+monte_carlo_runs = 1
+
+simulation_parameters = config_sim({
+    'T': range(time_periods_per_run),
+    'N': monte_carlo_runs,
+    'M': params
+})
+
+
+from cadCAD.configuration import append_configs
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+# The configurations above are then packaged into a `Configuration` object
+append_configs(
+    initial_state=initial_conditions, #dict containing variable names and initial values
+    partial_state_update_blocks=partial_state_update_blocks, #dict containing state update functions
+    sim_configs=simulation_parameters #dict containing simulation parameters
+)
+
+from cadCAD.engine import ExecutionMode, ExecutionContext, Executor
+from cadCAD import configs
+import pandas as pd
+
+exec_mode = ExecutionMode()
+multi_proc_ctx = ExecutionContext(context=exec_mode.multi_proc)
+run = Executor(exec_context=multi_proc_ctx, configs=configs)
+
+i = 0
+for raw_result, tensor_field in run.execute():
+    result = pd.DataFrame(raw_result)
+    print()
+    print(f"Tensor Field: {type(tensor_field)}")
+    print(tabulate(tensor_field, headers='keys', tablefmt='psql'))
+    print(f"Output: {type(result)}")
+    print(tabulate(result, headers='keys', tablefmt='psql'))
+    print()
+    i += 1
