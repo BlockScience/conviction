@@ -137,6 +137,19 @@ def conflict_links(network,proposal ,rate = .25):
                 network.edges[(i,j)]['type'] = 'conflict'
     return network
 
+def social_affinity_booster(network, proposal, participant):
+    
+    participants = get_nodes_by_type(network, 'participant')
+    influencers = get_edges_by_type(network, 'influence')
+    
+    j=proposal
+    i=participant
+    total_inf = np.sum([network.edges[(i,node)]['influence'] for node in participants if (i, node) in influencers ])
+    boosts=[network.edges[(node,j)]['affinity']*network.edges[(i,node)]['influence']/total_inf for node in participants if (i, node) in influencers ]
+    
+    return np.sum(boosts)
+    
+
 def trigger_sweep(field, trigger_func,xmax=.2,default_alpha=.5):
     
     if field == 'token_supply':
@@ -261,10 +274,10 @@ def snap_plot(nets, size_scale = 1/500, ani = False, dims = (20,20), savefigs=Fa
         cNorm  = colors.Normalize(vmin=0, vmax=max_tok)
         scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=cm)
     
-    
+        net_cand = [j for j in net_props if net.nodes[j]['status']=='candidate']
 
         for j in net_props:
-            node_size[j] = net.nodes[j]['funds_requested']*size_scale
+            node_size[j] = net.nodes[j]['funds_requested']*size_scale/4
             if net.nodes[j]['status']=="candidate":
                 node_color[j] = colors.to_rgba('blue')
                 trigger = net.nodes[j]['trigger']      
@@ -277,6 +290,12 @@ def snap_plot(nets, size_scale = 1/500, ani = False, dims = (20,20), savefigs=Fa
             elif net.nodes[j]['status']=="completed":
                 node_color[j] = colors.to_rgba('green')
                 net_node_label[j] = ''
+            elif net.nodes[j]['status']=="failed":
+                node_color[j] = colors.to_rgba('gray')
+                net_node_label[j] = ''
+            elif net.nodes[j]['status']=="killed":
+                node_color[j] = colors.to_rgba('black')
+                net_node_label[j] = ''
 
         for i in net_parts:    
             node_size[i] = net.nodes[i]['holdings']*size_scale
@@ -287,9 +306,10 @@ def snap_plot(nets, size_scale = 1/500, ani = False, dims = (20,20), savefigs=Fa
         for ind in range(E):
             e = edges[ind]
             tokens = net.edges[e]['tokens']
-            if tokens >0:
-                included_edges.append(e)
             edge_color[ind] = scalarMap.to_rgba(tokens)
+            if e[1] in net_cand:
+                included_edges.append(e)
+            
 
         iE = len(included_edges)
         included_edge_color = np.empty((iE,4))
@@ -306,6 +326,7 @@ def snap_plot(nets, size_scale = 1/500, ani = False, dims = (20,20), savefigs=Fa
                 edgelist=included_edges,
                 labels = net_node_label)
         plt.title('Tokens Staked by Partipants to Proposals')
+        
         if ani:
             nx.draw(net,
                     pos=pos, 
