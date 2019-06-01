@@ -200,7 +200,7 @@ def check_progress(params, step, sL, s):
             if np.random.rand() < likelihood:
                 completed.append(j)
             elif np.random.rand() < failure_rate:
-                completed.append(j)
+                failed.append(j)
     
     return({'completed':completed, 'failed':failed})
 
