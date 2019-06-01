@@ -1,6 +1,7 @@
 import networkx as nx
 from scipy.stats import expon, gamma
 import numpy as np
+from bonding_curve_eq import reserve, invariant,spot_price
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import matplotlib.cm as cmx
@@ -12,12 +13,29 @@ def get_nodes_by_type(g, node_type_selection):
 def get_edges_by_type(g, edge_type_selection):
     return [edge for edge in g.edges if g.edges[edge]['type']== edge_type_selection ]
 
-def total_funds_given_total_supply(total_supply):
+default_theta = .25
+default_initial_price = .1
+default_kappa = 2
+
+def total_funds_given_total_supply(total_supply, theta = default_theta, initial_price = default_initial_price):
     
-    #can put any bonding curve invariant here for initializatio!
-    total_funds = total_supply**2/1000
+    S = total_supply
+    total_funds = theta*reserve(S, S*initial_price)
     
     return total_funds
+
+def initialize_bonding_curve(initial_supply, initial_price = default_initial_price, kappa =default_kappa, theta = default_theta):
+    
+    S = initial_supply
+    R =  reserve(S, S*initial_price)*(1-theta)
+    
+    V0 = invariant(R,S,kappa)
+    
+    initial_reserve = R
+    
+    hatch_price = spot_price(R, V0, kappa)
+    
+    return initial_reserve, V0, hatch_price
 
 #maximum share of funds a proposal can take
 default_beta = .2 #later we should set this to be param so we can sweep it
