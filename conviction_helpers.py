@@ -2,6 +2,8 @@ import networkx as nx
 from scipy.stats import expon, gamma
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.colors as colors
+import matplotlib.cm as cmx
 
 #helper functions
 def get_nodes_by_type(g, node_type_selection):
@@ -13,7 +15,7 @@ def get_edges_by_type(g, edge_type_selection):
 def total_funds_given_total_supply(total_supply):
     
     #can put any bonding curve invariant here for initializatio!
-    total_funds = total_supply
+    total_funds = total_supply**2/1000
     
     return total_funds
 
@@ -67,13 +69,73 @@ def initialize_network(n,m, funds_func=total_funds_given_total_supply, trigger_f
             rv = np.random.rand()
             a_rv = 1-4*(1-rv)*rv #polarized distribution
             network.edges[(i, j)]['affinity'] = a_rv
-            network.edges[(i,j)]['tokens'] = 0
+            network.edges[(i, j)]['tokens'] = 0
             network.edges[(i, j)]['conviction'] = 0
+            network.edges[(i, j)]['type'] = 'support'
             
         proposals = get_nodes_by_type(network, 'proposal')
         total_requested = np.sum([ network.nodes[i]['funds_requested'] for i in proposals])
         
+        network = initial_conflict_network(network, rate = .25)
+        network = initial_social_network(network, scale = 1)
+        
     return network, initial_funds, initial_supply, total_requested
+
+def initial_social_network(network, scale = 1, sigmas=3):
+    
+    participants = get_nodes_by_type(network, 'participant')
+    
+    for i in participants:
+        for j in participants:
+            if not(j==i):
+                influence_rv = expon.rvs(loc=0.0, scale=scale)
+                if influence_rv > scale+sigmas*scale**2:
+                    network.add_edge(i,j)
+                    network.edges[(i,j)]['influence'] = influence_rv
+                    network.edges[(i,j)]['type'] = 'influence'
+    return network
+                    
+def initial_conflict_network(network, rate = .25):
+    
+    proposals = get_nodes_by_type(network, 'proposal')
+    
+    for i in proposals:
+        for j in proposals:
+            if not(j==i):
+                conflict_rv = np.random.rand()
+                if conflict_rv < rate :
+                    network.add_edge(i,j)
+                    network.edges[(i,j)]['conflict'] = 1-conflict_rv
+                    network.edges[(i,j)]['type'] = 'conflict'
+    return network
+
+def social_links(network, participant, scale = 1):
+    
+    participants = get_nodes_by_type(network, 'participant')
+    
+    i = participant
+    for j in participants:
+        if not(j==i):
+            influence_rv = expon.rvs(loc=0.0, scale=scale)
+            if influence_rv > scale+scale**2:
+                network.add_edge(i,j)
+                network.edges[(i,j)]['influence'] = influence_rv
+                network.edges[(i,j)]['type'] = 'influence'
+    return network
+
+def conflict_links(network,proposal ,rate = .25):
+    
+    proposals = get_nodes_by_type(network, 'proposal')
+    
+    i = proposal
+    for j in proposals:
+        if not(j==i):
+            conflict_rv = np.random.rand()
+            if conflict_rv < rate :
+                network.add_edge(i,j)
+                network.edges[(i,j)]['conflict'] = 1-conflict_rv
+                network.edges[(i,j)]['type'] = 'conflict'
+    return network
 
 def trigger_sweep(field, trigger_func,xmax=.2,default_alpha=.5):
     
@@ -148,3 +210,128 @@ def trigger_plotter(share_of_funds,Z, color_label,y, ylabel,cmap='jet'):
     plt.title('Trigger Function Map')
 
     cbar.ax.set_ylabel(color_label)
+    
+
+def snap_plot(nets, size_scale = 1/500, ani = False, dims = (20,20), savefigs=False):
+    
+
+    last_net = nets[-1]
+        
+    last_props=get_nodes_by_type(last_net, 'proposal')
+    M = len(last_props)
+    last_parts=get_nodes_by_type(last_net, 'participant')
+    N = len(last_parts)
+    pos = {}
+    
+    for ind in range(N):
+        i = last_parts[ind] 
+        pos[i] = np.array([0, 2*ind-N])
+
+    for ind in range(M):
+        j = last_props[ind] 
+        pos[j] = np.array([1, 2*N/M *ind-N])
+    
+    if ani:
+        figs = []
+        fig, ax = plt.subplots(figsize=dims)
+    
+    if savefigs:
+        counter = 0
+        length = 10
+        import string
+        unique_id = ''.join([np.random.choice(list(string.ascii_letters + string.digits)) for _ in range(length)])
+    for net in nets:
+        edges = get_edges_by_type(net, 'support')
+        max_tok = np.max([net.edges[e]['tokens'] for e in edges])
+
+        E = len(edges)
+        
+        net_props = get_nodes_by_type(net, 'proposal')
+        net_parts = get_nodes_by_type(net, 'participant')
+        net_node_label ={}
+        
+        num_nodes = len([node for node in net.nodes])
+        
+        node_color = np.empty((num_nodes,4))
+        node_size = np.empty(num_nodes)
+
+        edge_color = np.empty((E,4))
+        cm = plt.get_cmap('Reds')
+
+        cNorm  = colors.Normalize(vmin=0, vmax=max_tok)
+        scalarMap = cmx.ScalarMappable(norm=cNorm, cmap=cm)
+    
+    
+
+        for j in net_props:
+            node_size[j] = net.nodes[j]['funds_requested']*size_scale
+            if net.nodes[j]['status']=="candidate":
+                node_color[j] = colors.to_rgba('blue')
+                trigger = net.nodes[j]['trigger']      
+                conviction = net.nodes[j]['conviction']
+                percent_of_trigger = "          "+str(int(100*conviction/trigger))+'%'
+                net_node_label[j] = str(percent_of_trigger)
+            elif net.nodes[j]['status']=="active":
+                node_color[j] = colors.to_rgba('orange')
+                net_node_label[j] = ''
+            elif net.nodes[j]['status']=="completed":
+                node_color[j] = colors.to_rgba('green')
+                net_node_label[j] = ''
+
+        for i in net_parts:    
+            node_size[i] = net.nodes[i]['holdings']*size_scale
+            node_color[i] = colors.to_rgba('red')
+            net_node_label[i] = ''
+
+        included_edges = []
+        for ind in range(E):
+            e = edges[ind]
+            tokens = net.edges[e]['tokens']
+            if tokens >0:
+                included_edges.append(e)
+            edge_color[ind] = scalarMap.to_rgba(tokens)
+
+        iE = len(included_edges)
+        included_edge_color = np.empty((iE,4))
+        for ind in range(iE):
+            e = included_edges[ind]
+            tokens = net.edges[e]['tokens']
+            included_edge_color[ind] = scalarMap.to_rgba(tokens)
+        
+        nx.draw(net,
+                pos=pos, 
+                node_size = node_size,
+                node_color = node_color, 
+                edge_color = included_edge_color, 
+                edgelist=included_edges,
+                labels = net_node_label)
+        plt.title('Tokens Staked by Partipants to Proposals')
+        if ani:
+            nx.draw(net,
+                    pos=pos, 
+                    node_size = node_size,
+                    node_color = node_color, 
+                    edge_color = included_edge_color, 
+                    edgelist=included_edges,
+                    labels = net_node_label, ax=ax)
+            figs.append(fig)
+            
+        else:
+            nx.draw(net,
+                pos=pos, 
+                node_size = node_size,
+                node_color = node_color, 
+                edge_color = included_edge_color, 
+                edgelist=included_edges,
+                labels = net_node_label)
+            plt.title('Tokens Staked by Partipants to Proposals')
+            if savefigs:
+                plt.savefig(unique_id+'_fig'+str(counter)+'.png')
+                counter = counter+1
+            plt.show()
+        
+    if ani:
+        False
+        #anim = animation.ArtistAnimation(fig, , interval=50, blit=True, repeat_delay=1000)
+        #plt.show()
+            

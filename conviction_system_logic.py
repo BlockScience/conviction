@@ -1,5 +1,5 @@
 import numpy as np
-from conviction_helpers import get_nodes_by_type
+from conviction_helpers import get_nodes_by_type,get_edges_by_type, conflict_links, social_links
 #import networkx as nx
 from scipy.stats import expon, gamma
 
@@ -27,6 +27,9 @@ def gen_new_participant(network, new_participant_holdings):
         network.edges[(i, j)]['affinity'] = a_rv
         network.edges[(i,j)]['tokens'] = a_rv*network.nodes[i]['holdings']
         network.edges[(i, j)]['conviction'] = 0
+        network.edges[(i,j)]['type'] = 'support'
+    
+    social_links(network, i)
     
     return network
     
@@ -65,6 +68,10 @@ def gen_new_proposal(network, funds, supply, trigger_func, scale_factor = 1.0/10
             
         network.edges[(i, j)]['conviction'] = 0
         network.edges[(i,j)]['tokens'] = 0
+        network.edges[(i,j)]['type'] = 'support'
+        
+    network = conflict_links(network,j)
+        
     return network
         
         
@@ -82,7 +89,8 @@ def driving_process(params, step, sL, s):
         new_participant_holdings = 0
     
     network = s['network']
-    affinities = [network.edges[e]['affinity'] for e in network.edges ]
+    supporters = get_edges_by_type(network, 'support')
+    affinities = [network.edges[e]['affinity'] for e in supporters ]
     median_affinity = np.median(affinities)
     
     proposals = get_nodes_by_type(network, 'proposal')
