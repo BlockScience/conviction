@@ -1,6 +1,6 @@
 import numpy as np
-from conviction_helpers import get_nodes_by_type, get_edges_by_type, social_affinity_booster
-from bonding_curve_eq import reserve, spot_price, withdraw_with_tax
+from conviction_helpers import get_nodes_by_type, get_edges_by_type, social_affinity_booster, conviction_order
+from bonding_curve_eq import reserve, spot_price
 #import networkx as nx
 from scipy.stats import expon, gamma
 
@@ -76,12 +76,16 @@ def gen_new_proposal(network, funds, supply, trigger_func, scale_factor = 1.0/10
 def driving_process(params, step, sL, s):
     
     #placeholder plumbing for random processes
-    arrival_rate = 10/s['sentiment']
+    arrival_rate = 10/(1+s['sentiment'])
     rv1 = np.random.rand()
     new_participant = bool(rv1<1/arrival_rate)
     supporters = get_edges_by_type(s['network'], 'support')
+    
+    len_parts = len(get_nodes_by_type(s['network'], 'participant'))
+    supply = s['supply']
+    expected_holdings = .1*supply/len_parts
     if new_participant:
-        h_rv = expon.rvs(loc=0.0, scale=1000)
+        h_rv = expon.rvs(loc=0.0, scale=expected_holdings)
         new_participant_holdings = h_rv
     else:
         new_participant_holdings = 0
@@ -96,13 +100,16 @@ def driving_process(params, step, sL, s):
     funds = s['funds']
     total_funds_requested = np.sum(fund_requests)
     
-    proposal_rate = 10/median_affinity * total_funds_requested/funds
+    proposal_rate = 1/median_affinity * (1+total_funds_requested/funds)
     rv2 = np.random.rand()
     new_proposal = bool(rv2<1/proposal_rate)
     
     sentiment = s['sentiment']
     funds = s['funds']
     scale_factor = funds*sentiment**2/10000
+    
+    if scale_factor <1:
+        scale_factor = 1
     
     #this shouldn't happen but expon is throwing domain errors
     if sentiment>.4: 
@@ -175,6 +182,24 @@ def increment_supply(params, step, sL, s, _input):
     
     key = 'supply'
     value = supply
+    
+    return (key, value)
+
+def increment_reserve(params, step, sL, s, _input):
+    
+    supply = s['supply']
+    supply_arrival = _input['new_participant_holdings']
+
+    #increment funds
+    supply = supply + supply_arrival
+    
+    kappa = params['kappa']
+    V0 = params['invariant']
+    
+    R = reserve(supply, V0, kappa)
+    
+    key = 'reserve'
+    value = R
     
     return (key, value)
 
@@ -300,6 +325,7 @@ def trigger_function(params, step, sL, s):
     
     accepted = []
     triggers = {}
+    funds_to_be_released = 0
     for j in proposals:
         if network.nodes[j]['status'] == 'candidate':
             requested = network.nodes[j]['funds_requested']
@@ -309,10 +335,26 @@ def trigger_function(params, step, sL, s):
                 conviction = network.nodes[j]['conviction']
                 if conviction >threshold:
                     accepted.append(j)
+                    funds_to_be_released = funds_to_be_released + requested
         else:
             threshold = np.nan
             
         triggers[j] = threshold
+        
+        #catch over release and keep the highest conviction results
+        if funds_to_be_released > funds:
+            #print('funds ='+str(funds))
+            #print(accepted)
+            ordered = conviction_order(network, accepted)
+            #print(ordered)
+            accepted = []
+            release = 0
+            ind = 0
+            while release + network.nodes[ordered[ind]]['funds_requested'] < funds:
+                accepted.append(ordered[ind])
+                release= network.nodes[ordered[ind]]['funds_requested']
+                ind=ind+1
+                
                     
     return({'accepted':accepted, 'triggers':triggers})
     
@@ -425,7 +467,9 @@ def participants_decisions(params, step, sL, s):
             
             support = []
             for j in candidates:
-                affinity = network.edges[(i, j)]['affinity']*.5+.5*social_affinity_booster(network, j, i) 
+                booster = social_affinity_booster(network, j, i)
+                #print(booster)
+                affinity = network.edges[(i, j)]['affinity']+booster
                 cutoff = sensitivity*np.max([network.edges[(i,p)]['affinity'] for p in candidates])
                 if cutoff <.5:
                     cutoff = .5
@@ -508,6 +552,7 @@ def update_reserve(params, step, sL, s, _input):
     kappa = params['kappa']
     V0 = params['invariant']
     
+    #print("kappa="+str(kappa))
     R = reserve(supply, V0, kappa)
     
     key = 'reserve'
@@ -535,20 +580,44 @@ def update_price(params, step, sL, s, _input):
 
 def update_funds(params, step, sL, s, _input):
     
+    supply = s['supply']
     delta_holdings = _input['delta_holdings']
-    S = s['supply']
-    R = s['reserve']
-    V0=params['invariant']
+    minus_supply = np.sum([v for v in delta_holdings.values() if v<0])
+    #print(minus_supply)
+    min_supply = supply + minus_supply
+    
     kappa = params['kappa']
+    V0 = params['invariant']
+    
+    old_R = reserve(supply, V0, kappa)
+    min_R = reserve(min_supply, V0, kappa)
     exit_tax = params['tax_rate']
-    #to avoid overestimating taxes well treat all withdraw before mint
-    wDS = np.sum([v for v in delta_holdings.values() if v<0])
-              
-    _,tax, _ = withdraw_with_tax(wDS, R,S, V0, exit_tax, kappa)
     
-    funds = s['funds']+ tax
+    funds = s['funds']+exit_tax*(old_R-min_R)
     
+
     key = 'funds'
     value = funds
     
     return (key, value)
+
+def pad(vec, length,fill=True):
+    
+    if fill:
+        padded = np.zeros(length,)
+    else:
+        padded = np.empty(length,)
+        padded[:] = np.nan
+        
+    for i in range(len(vec)):
+        padded[i]= vec[i]
+        
+    return padded
+
+def make2D(key, data, fill=False):
+    maxL = data[key].apply(len).max()
+    newkey = 'padded_'+key
+    data[newkey] = data[key].apply(lambda x: pad(x,maxL,fill))
+    reshaped = np.array([a for a in data[newkey].values])
+    
+    return reshaped

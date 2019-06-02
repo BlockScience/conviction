@@ -1,7 +1,7 @@
 import networkx as nx
 from scipy.stats import expon, gamma
 import numpy as np
-from bonding_curve_eq import reserve, invariant,spot_price
+from bonding_curve_eq import invariant,spot_price
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 import matplotlib.cm as cmx
@@ -17,17 +17,27 @@ default_theta = .25
 default_initial_price = .1
 default_kappa = 2
 
-def total_funds_given_total_supply(total_supply, theta = default_theta, initial_price = default_initial_price):
+def conviction_order(network, proposals):
     
-    S = total_supply
-    total_funds = theta*reserve(S, S*initial_price)
+    ordered = sorted(proposals, key=lambda j:network.nodes[j]['conviction'] , reverse=True)
+    
+    return ordered
+    
+
+def total_funds_given_total_supply(initial_supply, theta = default_theta, initial_price = default_initial_price):
+    
+    total_raise = initial_price*initial_supply
+    
+    total_funds = theta*total_raise
     
     return total_funds
 
 def initialize_bonding_curve(initial_supply, initial_price = default_initial_price, kappa =default_kappa, theta = default_theta):
     
     S = initial_supply
-    R =  reserve(S, S*initial_price)*(1-theta)
+    total_raise = initial_price*S
+    
+    R =  (1-theta)*total_raise
     
     V0 = invariant(R,S,kappa)
     
@@ -50,13 +60,13 @@ def trigger_threshold(requested, funds, supply, beta = default_beta, rho = defau
     else: 
         return np.inf
 
-def initialize_network(n,m, funds_func=total_funds_given_total_supply, trigger_func =trigger_threshold ):
+def initialize_network(n,m, funds_func=total_funds_given_total_supply, trigger_func =trigger_threshold, expected_supply = 10**6 ):
     network = nx.DiGraph()
     for i in range(n):
         network.add_node(i)
         network.nodes[i]['type']="participant"
         
-        h_rv = expon.rvs(loc=0.0, scale=1000)
+        h_rv = expon.rvs(loc=0.0, scale= expected_supply/n)
         network.nodes[i]['holdings'] = h_rv
         
         s_rv = np.random.rand() 
@@ -162,8 +172,21 @@ def social_affinity_booster(network, proposal, participant):
     
     j=proposal
     i=participant
-    total_inf = np.sum([network.edges[(i,node)]['influence'] for node in participants if (i, node) in influencers ])
-    boosts=[network.edges[(node,j)]['affinity']*network.edges[(i,node)]['influence']/total_inf for node in participants if (i, node) in influencers ]
+    
+    i_tokens = network.nodes[i]['holdings']
+   
+    influence = np.array([network.edges[(i,node)]['influence'] for node in participants if (i, node) in influencers ])
+    #print(influence)
+    tokens = np.array([network.edges[(node,j)]['tokens'] for node in participants if (i, node) in influencers ])
+    #print(tokens)
+    
+    
+    influence_sum = np.sum(influence)
+    
+    if influence_sum>0:
+        boosts = np.sum(tokens*influence)/(influence_sum*i_tokens)
+    else:
+        boosts = 0
     
     return np.sum(boosts)
     
@@ -295,7 +318,7 @@ def snap_plot(nets, size_scale = 1/500, ani = False, dims = (20,20), savefigs=Fa
         net_cand = [j for j in net_props if net.nodes[j]['status']=='candidate']
 
         for j in net_props:
-            node_size[j] = net.nodes[j]['funds_requested']*size_scale/4
+            node_size[j] = net.nodes[j]['funds_requested']*size_scale
             if net.nodes[j]['status']=="candidate":
                 node_color[j] = colors.to_rgba('blue')
                 trigger = net.nodes[j]['trigger']      
@@ -316,7 +339,7 @@ def snap_plot(nets, size_scale = 1/500, ani = False, dims = (20,20), savefigs=Fa
                 net_node_label[j] = ''
 
         for i in net_parts:    
-            node_size[i] = net.nodes[i]['holdings']*size_scale
+            node_size[i] = net.nodes[i]['holdings']*size_scale/10
             node_color[i] = colors.to_rgba('red')
             net_node_label[i] = ''
 
@@ -336,14 +359,14 @@ def snap_plot(nets, size_scale = 1/500, ani = False, dims = (20,20), savefigs=Fa
             tokens = net.edges[e]['tokens']
             included_edge_color[ind] = scalarMap.to_rgba(tokens)
         
-        nx.draw(net,
-                pos=pos, 
-                node_size = node_size,
-                node_color = node_color, 
-                edge_color = included_edge_color, 
-                edgelist=included_edges,
-                labels = net_node_label)
-        plt.title('Tokens Staked by Partipants to Proposals')
+#        nx.draw(net,
+#                pos=pos, 
+#                node_size = node_size,
+#                node_color = node_color, 
+#                edge_color = included_edge_color, 
+#                edgelist=included_edges,
+#                labels = net_node_label)
+#        plt.title('Tokens Staked by Partipants to Proposals')
         
         if ani:
             nx.draw(net,
@@ -373,4 +396,24 @@ def snap_plot(nets, size_scale = 1/500, ani = False, dims = (20,20), savefigs=Fa
         False
         #anim = animation.ArtistAnimation(fig, , interval=50, blit=True, repeat_delay=1000)
         #plt.show()
-            
+
+def pad(vec, length,fill=True):
+    
+    if fill:
+        padded = np.zeros(length,)
+    else:
+        padded = np.empty(length,)
+        padded[:] = np.nan
+        
+    for i in range(len(vec)):
+        padded[i]= vec[i]
+        
+    return padded
+
+def make2D(key, data, fill=False):
+    maxL = data[key].apply(len).max()
+    newkey = 'padded_'+key
+    data[newkey] = data[key].apply(lambda x: pad(x,maxL,fill))
+    reshaped = np.array([a for a in data[newkey].values])
+    
+    return reshaped
