@@ -49,7 +49,7 @@ def gen_new_proposal(network, funds, supply, trigger_func, scale_factor = 1.0/10
     
     rescale = funds*scale_factor
     r_rv = gamma.rvs(3,loc=0.001, scale=rescale)
-    network.node[j]['funds_requested'] = r_rv
+    network.nodes[j]['funds_requested'] = r_rv
     
     network.nodes[j]['trigger']= trigger_func(r_rv, funds, supply)
     
@@ -252,8 +252,8 @@ def complete_proposal(params, step, sL, s, _input):
 
         for i in participants:
             force = network.edges[(i,j)]['affinity']
-            sentiment = network.node[i]['sentiment']
-            network.node[i]['sentiment'] = get_sentimental(sentiment, force, decay=0)
+            sentiment = network.nodes[i]['sentiment']
+            network.nodes[i]['sentiment'] = get_sentimental(sentiment, force, decay=0)
 
                 
     
@@ -262,8 +262,8 @@ def complete_proposal(params, step, sL, s, _input):
         network.nodes[j]['status']='failed' 
         for i in participants:
             force = -network.edges[(i,j)]['affinity']
-            sentiment = network.node[i]['sentiment']
-            network.node[i]['sentiment'] = get_sentimental(sentiment, force, decay=0)
+            sentiment = network.nodes[i]['sentiment']
+            network.nodes[i]['sentiment'] = get_sentimental(sentiment, force, decay=0)
     
     key = 'network'
     value = network

@@ -87,7 +87,7 @@ def initialize_network(n,m, funds_func=total_funds_given_total_supply, trigger_f
         network.nodes[j]['age']=0
         
         r_rv = gamma.rvs(3,loc=0.001, scale=10000)
-        network.node[j]['funds_requested'] = r_rv
+        network.nodes[j]['funds_requested'] = r_rv
         
         network.nodes[j]['trigger']= trigger_threshold(r_rv, initial_funds, initial_supply)
         
